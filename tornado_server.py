@@ -1,3 +1,6 @@
+import argparse
+import logging
+
 from tornado import gen, ioloop, web, httpclient, httputil
 
 import shared
@@ -5,7 +8,7 @@ import shared
 
 class Parameters(object):
     def __init__(self, request_handler):
-        # All parameters accepts one of: missing, tiny, small, normal, big, huge
+        # All parameters accepts one of: missing, tiny, low, normal, high, huge
         io_duration = request_handler.get_argument('io_duration_type', 'tiny')
         io_number = request_handler.get_argument('io_number_type', 'tiny')
         io_traffic = request_handler.get_argument('io_traffic_type', 'tiny')
@@ -98,13 +101,29 @@ class ParallelIOHandler(web.RequestHandler):
 
 
 def main():
-    backend_info = dict(backend_address='localhost:8080')
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-b', '--backend-port', type=int, default=8080,
+                        help='The port where backend is listen on')
+    parser.add_argument('-p', '--port', type=int, default=8082,
+                        help='The port to listen on')
+    parser.add_argument('-o', '--stats-output', type=str, default='tornado.log',
+                        help='The file to write stats to')
+    args = parser.parse_args()
+
+    # Configure stats logger
+    stats_log_file = logging.FileHandler(args.stats_output)
+    stats_log_file.setFormatter(logging.Formatter(shared.STATS_LOG_FORMAT))
+    shared.stats_logger.addHandler(stats_log_file)
+
+    backend_info = dict(
+        backend_address='localhost:{}'.format(args.backend_port)
+    )
     app = web.Application([
         (r"/no-io", NoIOHandler),
         (r"/sequential-io", SequentialIOHandler, backend_info),
         (r"/parallel-io", ParallelIOHandler, backend_info),
     ])
-    app.listen(8082)
+    app.listen(args.port)
     io_loop = ioloop.IOLoop.current()
     ioloop.PeriodicCallback(shared.report_stats, 60000).start()
     io_loop.start()

@@ -1,7 +1,16 @@
+import logging
 from os.path import abspath, dirname, join
 
 import itertools
 import psutil
+
+STATS_LOG_FORMAT = '%(asctime)s    %(message)s'
+_stream_handler = logging.StreamHandler()
+_stream_handler.setFormatter(logging.Formatter(STATS_LOG_FORMAT))
+
+stats_logger = logging.getLogger('stats-logger')
+stats_logger.addHandler(_stream_handler)
+stats_logger.setLevel(logging.INFO)
 
 
 class PerformanceCoefficient(object):
@@ -15,6 +24,7 @@ class PerformanceCoefficient(object):
         load_cpu(iterations)
         finish = psutil.Process().cpu_times().user
         cls.VALUE = int(iterations / (finish - start))
+        logging.info('Estimated performance coefficient: {}'.format(cls.VALUE))
 
 
 class ValuesSequence(object):
@@ -48,8 +58,14 @@ def report_stats():
             cpu_ops, cpu_duration = seq.total_number, seq.total_sum
 
     cpu_times = psutil.Process().cpu_times()
-    print('IO: {: >10} {: >8,.1f}   CPU: {: >10} {: >8,.1f} {}'
-          .format(io_ops, io_duration, cpu_ops, cpu_duration, cpu_times))
+
+    stats_logger.info(
+        'IO: {io_ops: >9} {io_duration: >7,.1f}   '
+        'CPU: {cpu_ops: >9} {cpu_duration: >6,.1f}   '
+        'CPU-times: {cpu_user: >6,.1f} {cpu_system: >6,.1f}'
+            .format(io_ops=io_ops, io_duration=io_duration,
+                    cpu_ops=cpu_ops, cpu_duration=cpu_duration,
+                    cpu_user=cpu_times.user, cpu_system=cpu_times.system))
 
 
 def load_cpu(seconds):
@@ -70,9 +86,9 @@ def _load_response_file(file_name):
 RESPONSE_FILES = {
     'missing': '',
     'tiny': _load_response_file('tiny.json'),
-    'small': _load_response_file('small.json'),
+    'low': _load_response_file('low.json'),
     'normal': _load_response_file('normal.json'),
-    'big': _load_response_file('big.json'),
+    'high': _load_response_file('high.json'),
     'huge': _load_response_file('huge.json'),
 }
 
@@ -85,7 +101,7 @@ DURATIONS = {
         0.00110, 0.00088, 0.00111, 0.00082, 0.00085, 0.00137, 0.00065, 0.00092,
         0.00125
     ])),
-    'small': ValuesSequence(itertools.cycle([  # random 1-3 ms   X25
+    'low': ValuesSequence(itertools.cycle([  # random 1-3 ms   X25
         0.00136, 0.00282, 0.00236, 0.00241, 0.00156, 0.00113, 0.00247, 0.00156,
         0.00290, 0.00175, 0.00126, 0.00280, 0.00185, 0.00134, 0.00244, 0.00137,
         0.00225, 0.00268, 0.00100, 0.00231, 0.00147, 0.00240, 0.00212, 0.00246,
@@ -97,7 +113,7 @@ DURATIONS = {
         0.03275, 0.04711, 0.03473, 0.03261, 0.03674, 0.05408, 0.05087, 0.04297,
         0.03271
     ])),
-    'big': ValuesSequence(itertools.cycle([  # random 500-800 ms   X25
+    'high': ValuesSequence(itertools.cycle([  # random 500-800 ms   X25
         0.75404, 0.58158, 0.76888, 0.51184, 0.57822, 0.52086, 0.66615, 0.71396,
         0.72955, 0.53984, 0.62011, 0.74071, 0.55196, 0.67843, 0.70419, 0.64219,
         0.78352, 0.51477, 0.57359, 0.73417, 0.71345, 0.61352, 0.69332, 0.63462,
@@ -115,9 +131,9 @@ DURATIONS = {
 IO_NUMBER = {
     'missing': 0,
     'tiny': 1,
-    'small': 2,
+    'low': 2,
     'normal': 6,
-    'big': 20,
+    'high': 20,
     'huge': 70
 }
 
@@ -129,7 +145,7 @@ CPU_LOADS = {
         0.0000097, 0.0000054, 0.0000087, 0.0000066, 0.0000115, 0.0000148,
         0.0000110, 0.0000088, 0.0000111, 0.0000082, 0.0000085, 0.0000137,
     ]))),
-    'small': ValuesSequence(itertools.cycle(reversed([  # random 0.05-0.08 ms   X18
+    'low': ValuesSequence(itertools.cycle(reversed([  # random 0.05-0.08 ms   X18
         0.0000637, 0.0000784, 0.00005409, 0.0000665, 0.0000743, 0.0000769,
         0.0000647, 0.0000715, 0.00006098, 0.0000772, 0.0000680, 0.0000561,
         0.0000533, 0.0000554, 0.00006227, 0.0000514, 0.0000597, 0.0000687
@@ -139,7 +155,7 @@ CPU_LOADS = {
         0.000647, 0.000715, 0.0006098, 0.000772, 0.000680, 0.000561,
         0.000533, 0.000554, 0.0006227, 0.000514, 0.000597, 0.000687
     ]))),
-    'big': ValuesSequence(itertools.cycle(reversed([  # random 5-8 ms   X18
+    'high': ValuesSequence(itertools.cycle(reversed([  # random 5-8 ms   X18
         0.00637, 0.00784, 0.005409, 0.00665, 0.00743, 0.00769,
         0.00647, 0.00715, 0.006098, 0.00772, 0.00680, 0.00561,
         0.00533, 0.00554, 0.006227, 0.00514, 0.00597, 0.00687

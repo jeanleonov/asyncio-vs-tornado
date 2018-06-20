@@ -1,4 +1,6 @@
+import argparse
 import asyncio
+import logging
 
 import aiohttp
 from aiohttp import web
@@ -8,7 +10,7 @@ import shared
 
 class Parameters(object):
     def __init__(self, request):
-        # All parameters accepts one of: missing, tiny, small, normal, big, huge
+        # All parameters accepts one of: missing, tiny, low, normal, high, huge
         io_duration = request.query.get('io_duration_type', 'tiny')
         io_number = request.query.get('io_number_type', 'tiny')
         io_traffic = request.query.get('io_traffic_type', 'tiny')
@@ -91,7 +93,23 @@ async def stats_reporter():
 
 
 def main():
-    server = Server('http://localhost:8080')
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-b', '--backend-port', type=int, default=8080,
+                        help='The port where backend is listen on')
+    parser.add_argument('-p', '--port', type=int, default=8081,
+                        help='The port to listen on')
+    parser.add_argument('-o', '--stats-output', type=str, default='asyncio.log',
+                        help='The file to write stats to')
+    args = parser.parse_args()
+
+    # Configure stats logger
+    stats_log_file = logging.FileHandler(args.stats_output)
+    stats_log_file.setFormatter(logging.Formatter(shared.STATS_LOG_FORMAT))
+    shared.stats_logger.addHandler(stats_log_file)
+
+    server = Server(
+        backend_address='http://localhost:{}'.format(args.backend_port)
+    )
     app = web.Application()
     app.add_routes([
         web.get('/no-io', server.no_io),
@@ -100,7 +118,7 @@ def main():
     ])
     loop = asyncio.get_event_loop()
     loop.create_task(stats_reporter())
-    web.run_app(app, port=8081)
+    web.run_app(app, port=args.port)
 
 
 if __name__ == '__main__':

@@ -1,34 +1,44 @@
+import os
+from os.path import abspath, dirname, join
+
 from locust import HttpLocust, TaskSet, task
+import yaml
 
+DEFAULT_CONFIG_FILE = join(dirname(abspath(__file__)),
+                           'test-scenarios',
+                           'norm-io-ops low-io-delay low-cpu.yml')
+CONFIG_FILE_PATH = os.environ.get('SCENARIO', DEFAULT_CONFIG_FILE)
 
-class ClientBehavior(TaskSet):
+try:
+    # Read test configuration from the file
+    with open(CONFIG_FILE_PATH) as config_file:
+        TEST_CONFIG = yaml.load(config_file)
 
-    @task(10)
-    def no_io(self):
-        self.client.get("/no-io", params={
-            'response_type': 'small',
-            'cpu_type': 'small',
-        })
+    # Define user behavior according to config
+    class ClientBehavior(TaskSet):
 
-    @task(10)
-    def sequential_io(self):
-        self.client.get("/sequential-io", params={
-            'io_duration_type': 'small',
-            'io_number_type': 'normal',
-            'io_traffic_type': 'small',
-            'response_type': 'small',
-            'cpu_type': 'small',
-        })
+        @task(TEST_CONFIG['no-io']['weight'])
+        def no_io(self):
+            self.client.get(
+                "/no-io", params=TEST_CONFIG['no-io']['params'])
 
-    @task(10)
-    def parallel_io(self):
-        self.client.get("/parallel-io", params={
-            'io_duration_type': 'small',
-            'io_number_type': 'normal',
-            'io_traffic_type': 'small',
-            'response_type': 'small',
-            'cpu_type': 'small',
-        })
+        @task(TEST_CONFIG['sequential-io']['weight'])
+        def sequential_io(self):
+            self.client.get(
+                "/sequential-io", params=TEST_CONFIG['sequential-io']['params'])
+
+        @task(TEST_CONFIG['parallel-io']['weight'])
+        def parallel_io(self):
+            self.client.get(
+                "/parallel-io", params=TEST_CONFIG['parallel-io']['params'])
+
+except (KeyError, ValueError, OSError) as err:
+    raise ValueError(
+        'Invalid configuration file at {}. '
+        'The YAML configuration file should contain three nodes: '
+        '"no-io", "sequential-io", "parallel-io". Each of nodes should have '
+        '"weight" (integer) and "params" (dict).'.format(CONFIG_FILE_PATH)
+    ) from err
 
 
 class WebsiteUser(HttpLocust):
