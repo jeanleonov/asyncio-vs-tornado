@@ -1,6 +1,7 @@
 import argparse
 import logging
 
+import itertools
 from tornado import gen, ioloop, web, httpclient, httputil
 
 import shared
@@ -38,8 +39,8 @@ class NoIOHandler(web.RequestHandler):
 
 class SequentialIOHandler(web.RequestHandler):
 
-    def initialize(self, backend_address):
-        self.backend_address = backend_address
+    def initialize(self, backend_addresses):
+        self.backend_addresses = backend_addresses
 
     @gen.coroutine
     def get(self):
@@ -54,9 +55,8 @@ class SequentialIOHandler(web.RequestHandler):
                 'duration': str(io_duration),
                 'response_type': parameters.io_traffic
             }
-            url = httputil.url_concat(
-                'http://{}/simulate-backend'.format(self.backend_address), params
-            )
+            base_url = '{}/simulate-backend'.format(next(self.backend_addresses))
+            url = httputil.url_concat(base_url, params)
             yield async_client.fetch(url)
 
             # Simulate CPU work
@@ -69,8 +69,8 @@ class SequentialIOHandler(web.RequestHandler):
 
 class ParallelIOHandler(web.RequestHandler):
 
-    def initialize(self, backend_address):
-        self.backend_address = backend_address
+    def initialize(self, backend_addresses):
+        self.backend_addresses = backend_addresses
 
     @gen.coroutine
     def get(self):
@@ -85,9 +85,8 @@ class ParallelIOHandler(web.RequestHandler):
                 'duration': str(io_duration),
                 'response_type': parameters.io_traffic
             }
-            url = httputil.url_concat(
-                'http://{}/simulate-backend'.format(self.backend_address), params
-            )
+            base_url = '{}/simulate-backend'.format(next(self.backend_addresses))
+            url = httputil.url_concat(base_url, params)
             yield async_client.fetch(url)
 
             # Simulate CPU work
@@ -102,8 +101,8 @@ class ParallelIOHandler(web.RequestHandler):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-b', '--backend-port', type=int, default=8080,
-                        help='The port where backend is listen on')
+    parser.add_argument('-b', '--backend-ports', type=str, default='8080',
+                        help='Comma separated ports where backend is listen on')
     parser.add_argument('-p', '--port', type=int, default=8082,
                         help='The port to listen on')
     parser.add_argument('-o', '--stats-output', type=str, default='tornado.log',
@@ -115,9 +114,11 @@ def main():
     stats_log_file.setFormatter(logging.Formatter(shared.STATS_LOG_FORMAT))
     shared.stats_logger.addHandler(stats_log_file)
 
-    backend_info = dict(
-        backend_address='localhost:{}'.format(args.backend_port)
-    )
+    backend_addresses = itertools.cycle([
+        'http://localhost:{}'.format(port)
+        for port in args.backend_ports.split(',') if port
+    ])
+    backend_info = dict(backend_addresses=backend_addresses)
     app = web.Application([
         (r"/no-io", NoIOHandler),
         (r"/sequential-io", SequentialIOHandler, backend_info),

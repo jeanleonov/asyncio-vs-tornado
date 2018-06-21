@@ -3,6 +3,7 @@ import asyncio
 import logging
 
 import aiohttp
+import itertools
 from aiohttp import web
 
 import shared
@@ -28,8 +29,8 @@ class Parameters(object):
 
 
 class Server(object):
-    def __init__(self, backend_address):
-        self.backend_address = backend_address
+    def __init__(self, backend_addresses):
+        self.backend_addresses = backend_addresses
 
     @staticmethod
     async def no_io(request):
@@ -46,7 +47,7 @@ class Server(object):
 
                 # Make a request to dummy backend
                 io_duration = next(parameters.io_duration_seq)
-                url = f'{self.backend_address}/simulate-backend'
+                url = f'{next(self.backend_addresses)}/simulate-backend'
                 params = {
                     'duration': str(io_duration),
                     'response_type': parameters.io_traffic
@@ -68,7 +69,7 @@ class Server(object):
 
                 # Make a request to dummy backend
                 io_duration = next(parameters.io_duration_seq)
-                url = f'{self.backend_address}/simulate-backend'
+                url = f'{next(self.backend_addresses)}/simulate-backend'
                 params = {
                     'duration': str(io_duration),
                     'response_type': parameters.io_traffic
@@ -94,8 +95,8 @@ async def stats_reporter():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-b', '--backend-port', type=int, default=8080,
-                        help='The port where backend is listen on')
+    parser.add_argument('-b', '--backend-ports', type=str, default='8080',
+                        help='Comma separated ports where backend is listen on')
     parser.add_argument('-p', '--port', type=int, default=8081,
                         help='The port to listen on')
     parser.add_argument('-o', '--stats-output', type=str, default='asyncio.log',
@@ -107,9 +108,11 @@ def main():
     stats_log_file.setFormatter(logging.Formatter(shared.STATS_LOG_FORMAT))
     shared.stats_logger.addHandler(stats_log_file)
 
-    server = Server(
-        backend_address='http://localhost:{}'.format(args.backend_port)
-    )
+    backend_addresses = itertools.cycle([
+        'http://localhost:{}'.format(port)
+        for port in args.backend_ports.split(',') if port
+    ])
+    server = Server(backend_addresses=backend_addresses)
     app = web.Application()
     app.add_routes([
         web.get('/no-io', server.no_io),

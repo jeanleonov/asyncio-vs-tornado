@@ -9,27 +9,30 @@ set -u
 
 
 # Defaults values for arguments.
-SCENARIO="./test-scenarios/norm-io-ops low-io-delay low-cpu.yml"
+SCENARIO="./test-scenarios/highops_lowdelay_tinycpu.yml"
 REQUESTS=200
 CLIENTS=40
 HATCH_RATE=5
 
-BACKEND_PORT=8080
-ASYNCIO_PORT=8081
-TORNADO2_PORT=8082
-TORNADO3_PORT=8083
+BACKENDS_NUM=8
+BACKEND_START_PORT=8080
+BACKEND_END_PORT=$(expr ${BACKEND_START_PORT} + ${BACKENDS_NUM} - 1)
+ASYNCIO_PORT=8200
+TORNADO2_PORT=8201
+TORNADO3_PORT=8202
 
 # Save arguments to add it into results
 ARGUMENTS=$@
 
 usage() {
-    echo "Usage: ${0} [--scenario <file>][--requests <int>][--clients <int>][--hatch_rate <int>]"
+    echo "Usage: ${0} [--scenario <file>][--requests <int>][--clients <int>][--hatch_rate <int>][--backends <int>]"
     echo
     echo "Options:"
     echo "   --scenario <file>   Scenario file to use (default $SCENARIO)"
     echo "   --requests <int>    Number of requests locusts should send (default $REQUESTS)"
     echo "   --clients <int>     Number of clients to simulate (default $CLIENTS)"
     echo "   --hatch-rate <int>  Rate per second in which clients are spawned (default $HATCH_RATE)"
+    echo "   --backend <int>     Number of backend servers to start (default $BACKENDS_NUM)"
     exit 1
 }
 
@@ -89,9 +92,9 @@ ensure_server() {
     sleep 1
 
     # Try to find expected server PID
-    SERVER_PID=`jobs -l | grep "${SERVER_NAME}" | awk '{ print $2 }'`
+    SERVER_PID=`jobs -l | grep '"${SERVER_NAME}"' | awk '{ print $2 }'`
     # Find actual server listening on specified port
-    LISTENER_PID=`netstat -nlp 2>/dev/null | grep ":${SERVER_PORT} " |
+    LISTENER_PID=`netstat -nlp 2>/dev/null | grep '":${SERVER_PORT} "' |
                   awk '{ print $7 }' | awk -F '/' '{ print $1 }' | head -1`
 
     if [ "${SERVER_PID}" != "${LISTENER_PID}" ]; then
@@ -101,13 +104,68 @@ ensure_server() {
     fi
 }
 
+ensure_servers() {
+    # Rename arguments
+    SERVER_NAME="$1"
+    START_PORT="$2"
+    END_PORT="$3"
+    SERVERS_NUM=`expr ${END_PORT} - ${START_PORT} + 1`
+
+    # Give servers a second to start
+    sleep 1
+
+    # Find all processes listening on specified ports
+    LISTENER_PIDS=","
+    for port in $(seq ${START_PORT} ${END_PORT}); do
+        LISTENER_PID=`netstat -nlp 2>/dev/null | grep ":${port} " |
+                      awk '{ print $7 }' | awk -F '/' '{ print $1 }' | head -1`
+        LISTENER_PIDS="${LISTENER_PIDS}${LISTENER_PID},"
+    done
+
+    # Verify if there are right number of running servers
+    RUNNING_SERVERS_NUM=`jobs -l | grep "${SERVER_NAME}" | wc -l`
+    if [[ ${SERVERS_NUM} != ${RUNNING_SERVERS_NUM} ]]; then
+        log "There are ${RUNNING_SERVERS_NUM} ${SERVER_NAME} servers,
+             ${SERVERS_NUM} expected" "ERROR"
+        log "Logs can be found at '${RESULTS}'"
+        exit 1
+    fi
+
+    # Verify that all servers are listening on one of specified ports
+    for pid in `jobs -l | grep '"${SERVER_NAME}"' | awk '{ print $2 }'`; do
+        echo "${pid}"
+        if [[ ${LISTENER_PIDS} != *",${pid},"* ]]; then
+            log "${SERVER_NAME} with PID ${pid} is not listening on any
+                 port between ${START_PORT} and ${END_PORT}" "ERROR"
+            log "Logs can be found at '${RESULTS}'"
+            exit 1
+        fi
+    done
+
+    log "${SERVERS_NUM} ${SERVER_NAME} servers are running"
+}
+
 kill_jobs() {
     jobs -p | xargs kill
 }
 trap kill_jobs EXIT
 
 
-RESULTS="results/$(date +'%Y-%m-%d %T')"
+log ""
+log ""
+log "================================================================"
+log "RUNNING TEST: ${ARGUMENTS}"
+log ""
+
+
+# Ensure results directory is new
+SCENARIO_NAME=`echo "${SCENARIO}" \
+               | awk -F '/' '{ print $NF }' \
+               | awk -F '.' '{ $NF=""; print $0 }'`
+RESULTS="results/${SCENARIO_NAME}_${CLIENTS}c"
+if [ -d "${RESULTS}" ]; then
+    RESULTS="${RESULTS}/$(date +'%Y-%m-%d %T')"
+fi
 mkdir -p "${RESULTS}"
 
 # Export scenario for locust
@@ -135,12 +193,15 @@ log "Ensuring that dependencies are installed for python3"
 ${VENV3}/bin/pip3 install --quiet -r requirements-python3.txt
 
 
-log "Starting dummy backend server on port ${BACKEND_PORT}"
-${VENV3}/bin/python3 ./backend.py \
-                     --port ${BACKEND_PORT} \
-                     > "${RESULTS}/backend.log" 2>&1 &
-
-ensure_server "backend.py" ${BACKEND_PORT}
+BACKEND_PORTS=
+# Start specified number of backend servers
+for BACKEND_PORT in $(seq ${BACKEND_START_PORT} ${BACKEND_END_PORT}); do
+    log "Starting dummy backend server on port ${BACKEND_PORT}"
+    ${VENV3}/bin/python3 ./backend.py --port ${BACKEND_PORT} \
+                         > "${RESULTS}/backend-${BACKEND_PORT}.log" 2>&1 &
+    BACKEND_PORTS="${BACKEND_PORTS},${BACKEND_PORT}"
+done
+ensure_servers "backend.py" ${BACKEND_START_PORT} ${BACKEND_END_PORT}
 
 
 log ""
@@ -148,6 +209,7 @@ log "===================================="
 log "Starting asyncio server on port ${ASYNCIO_PORT}"
 ${VENV3}/bin/python3 ./asyncio_server.py \
                      --port ${ASYNCIO_PORT} \
+                     --backend-ports ${BACKEND_PORTS} \
                      --stats-output "${RESULTS}/asyncio-stats.log" \
                      > "${RESULTS}/asyncio.log" 2>&1 &
 
@@ -160,7 +222,6 @@ test-venv3/bin/locust \
     --num-request=${REQUESTS} \
     --clients=${CLIENTS} \
     --hatch-rate=${HATCH_RATE} \
-    --only-summary \
     --no-reset-stats \
     2>&1 | tee "${RESULTS}/asyncio-locust.log"
 
@@ -173,6 +234,7 @@ log "=============================================="
 log "Starting tornado (Python2) server on port ${TORNADO2_PORT}"
 ${VENV2}/bin/python2 ./tornado_server.py \
                     --port ${TORNADO2_PORT} \
+                    --backend-ports ${BACKEND_PORTS} \
                     --stats-output "${RESULTS}/tornado2-stats.log" \
                     > "${RESULTS}/tornado2.log" 2>&1 &
 
@@ -185,7 +247,6 @@ test-venv3/bin/locust \
     --num-request=${REQUESTS} \
     --clients=${CLIENTS} \
     --hatch-rate=${HATCH_RATE} \
-    --only-summary \
     --no-reset-stats \
     2>&1 | tee "${RESULTS}/tornado2-locust.log"
 
@@ -198,6 +259,7 @@ log "=============================================="
 log "Starting tornado (Python3) server on port ${TORNADO3_PORT}"
 ${VENV3}/bin/python3 ./tornado_server.py \
                      --port ${TORNADO3_PORT} \
+                     --backend-ports ${BACKEND_PORTS} \
                      --stats-output "${RESULTS}/tornado3-stats.log" \
                      > "${RESULTS}/tornado3.log" 2>&1 &
 
@@ -210,7 +272,6 @@ test-venv3/bin/locust \
     --num-request=${REQUESTS} \
     --clients=${CLIENTS} \
     --hatch-rate=${HATCH_RATE} \
-    --only-summary \
     --no-reset-stats \
     2>&1 | tee "${RESULTS}/tornado3-locust.log"
 

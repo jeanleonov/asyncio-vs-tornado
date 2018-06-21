@@ -6,7 +6,7 @@ import yaml
 
 DEFAULT_CONFIG_FILE = join(dirname(abspath(__file__)),
                            'test-scenarios',
-                           'norm-io-ops low-io-delay low-cpu.yml')
+                           'highops_lowdelay_tinycpu.yml')
 CONFIG_FILE_PATH = os.environ.get('SCENARIO', DEFAULT_CONFIG_FILE)
 
 try:
