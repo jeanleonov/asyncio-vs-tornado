@@ -79,23 +79,23 @@ done
 
 
 log() {
-    LEVEL=${2:-INFO}
+    local LEVEL=${2:-INFO}
     echo "$(date +'%Y-%m-%d %T'): $LEVEL $1"
 }
 
 ensure_server() {
     # Rename arguments
-    SERVER_NAME="$1"
-    SERVER_PORT="$2"
+    local SERVER_NAME="$1"
+    local SERVER_PORT="$2"
 
     # Give server a second to start
     sleep 1
 
     # Try to find expected server PID
-    SERVER_PID=`jobs -l | grep '"${SERVER_NAME}"' | awk '{ print $2 }'`
+    local SERVER_PID=`jobs -l | grep '"${SERVER_NAME}"' | awk '{ print $2 }'`
     # Find actual server listening on specified port
-    LISTENER_PID=`netstat -nlp 2>/dev/null | grep '":${SERVER_PORT} "' |
-                  awk '{ print $7 }' | awk -F '/' '{ print $1 }' | head -1`
+    local LISTENER_PID=`netstat -nlp 2>/dev/null | grep '":${SERVER_PORT} "' |
+                        awk '{ print $7 }' | awk -F '/' '{ print $1 }' | head -1`
 
     if [ "${SERVER_PID}" != "${LISTENER_PID}" ]; then
          log "$1 server is not listening on ${SERVER_PORT}" "ERROR"
@@ -106,24 +106,25 @@ ensure_server() {
 
 ensure_servers() {
     # Rename arguments
-    SERVER_NAME="$1"
-    START_PORT="$2"
-    END_PORT="$3"
-    SERVERS_NUM=`expr ${END_PORT} - ${START_PORT} + 1`
+    local SERVER_NAME="$1"
+    local START_PORT="$2"
+    local END_PORT="$3"
+    local SERVERS_NUM=`expr ${END_PORT} - ${START_PORT} + 1`
 
     # Give servers a second to start
     sleep 1
 
     # Find all processes listening on specified ports
-    LISTENER_PIDS=","
-    for port in $(seq ${START_PORT} ${END_PORT}); do
-        LISTENER_PID=`netstat -nlp 2>/dev/null | grep ":${port} " |
-                      awk '{ print $7 }' | awk -F '/' '{ print $1 }' | head -1`
+    local LISTENER_PIDS=","
+    for port in $(seq ${START_PORT} ${END_PORT})
+    do
+        local LISTENER_PID=`netstat -nlp 2>/dev/null | grep ":${port} " |
+                            awk '{ print $7 }' | awk -F '/' '{ print $1 }' | head -1`
         LISTENER_PIDS="${LISTENER_PIDS}${LISTENER_PID},"
     done
 
     # Verify if there are right number of running servers
-    RUNNING_SERVERS_NUM=`jobs -l | grep "${SERVER_NAME}" | wc -l`
+    local RUNNING_SERVERS_NUM=`jobs -l | grep "${SERVER_NAME}" | wc -l`
     if [[ ${SERVERS_NUM} != ${RUNNING_SERVERS_NUM} ]]; then
         log "There are ${RUNNING_SERVERS_NUM} ${SERVER_NAME} servers,
              ${SERVERS_NUM} expected" "ERROR"
@@ -132,7 +133,8 @@ ensure_servers() {
     fi
 
     # Verify that all servers are listening on one of specified ports
-    for pid in `jobs -l | grep '"${SERVER_NAME}"' | awk '{ print $2 }'`; do
+    for pid in `jobs -l | grep '"${SERVER_NAME}"' | awk '{ print $2 }'`
+    do
         echo "${pid}"
         if [[ ${LISTENER_PIDS} != *",${pid},"* ]]; then
             log "${SERVER_NAME} with PID ${pid} is not listening on any
@@ -195,7 +197,8 @@ ${VENV3}/bin/pip3 install --quiet -r requirements-python3.txt
 
 BACKEND_PORTS=
 # Start specified number of backend servers
-for BACKEND_PORT in $(seq ${BACKEND_START_PORT} ${BACKEND_END_PORT}); do
+for BACKEND_PORT in $(seq ${BACKEND_START_PORT} ${BACKEND_END_PORT})
+do
     log "Starting dummy backend server on port ${BACKEND_PORT}"
     ${VENV3}/bin/python3 ./backend.py --port ${BACKEND_PORT} \
                          > "${RESULTS}/backend-${BACKEND_PORT}.log" 2>&1 &
