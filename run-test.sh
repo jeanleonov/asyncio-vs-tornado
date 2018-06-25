@@ -13,9 +13,10 @@ SCENARIO="./test-scenarios/highops_lowdelay_tinycpu.yml"
 REQUESTS=200
 CLIENTS=40
 HATCH_RATE=5
-
 BACKENDS_NUM=8
-BACKEND_START_PORT=8080
+RESULTS_ROOT="./results"
+
+BACKEND_START_PORT=8090
 BACKEND_END_PORT=$(expr ${BACKEND_START_PORT} + ${BACKENDS_NUM} - 1)
 ASYNCIO_PORT=8200
 TORNADO2_PORT=8201
@@ -25,7 +26,8 @@ TORNADO3_PORT=8202
 ARGUMENTS=$@
 
 usage() {
-    echo "Usage: ${0} [--scenario <file>][--requests <int>][--clients <int>][--hatch_rate <int>][--backends <int>]"
+    echo "Usage: ${0} [--scenario <file>][--requests <int>][--clients <int>]
+                      [--hatch_rate <int>][--backends <int>][--results <str>]"
     echo
     echo "Options:"
     echo "   --scenario <file>   Scenario file to use (default $SCENARIO)"
@@ -33,6 +35,7 @@ usage() {
     echo "   --clients <int>     Number of clients to simulate (default $CLIENTS)"
     echo "   --hatch-rate <int>  Rate per second in which clients are spawned (default $HATCH_RATE)"
     echo "   --backend <int>     Number of backend servers to start (default $BACKENDS_NUM)"
+    echo "   --results <dir>     A name of directory to use for results (default $RESULTS_ROOT)"
     exit 1
 }
 
@@ -71,6 +74,15 @@ while [ $# -gt 0 ]; do
             usage
         fi
         HATCH_RATE="${1}"
+        shift
+        continue
+    fi
+    if [ "${1}" = "--results" ]; then
+        shift
+        if [ -z "${1}" ]; then
+            usage
+        fi
+        RESULTS_ROOT="${1}"
         shift
         continue
     fi
@@ -163,10 +175,12 @@ log ""
 # Ensure results directory is new
 SCENARIO_NAME=`echo "${SCENARIO}" \
                | awk -F '/' '{ print $NF }' \
-               | awk -F '.' '{ $NF=""; print $0 }'`
-RESULTS="results/${SCENARIO_NAME}_${CLIENTS}c"
+               | awk -F '.' '{ $NF=""; print $0 }' \
+               | sed 's/ //'`
+RESULTS="${RESULTS_ROOT}/${SCENARIO_NAME}_${CLIENTS}c"
 if [ -d "${RESULTS}" ]; then
-    RESULTS="${RESULTS}/$(date +'%Y-%m-%d %T')"
+    log "Results directory '${RESULTS}' already exists"
+    exit 1
 fi
 mkdir -p "${RESULTS}"
 
@@ -225,7 +239,6 @@ test-venv3/bin/locust \
     --num-request=${REQUESTS} \
     --clients=${CLIENTS} \
     --hatch-rate=${HATCH_RATE} \
-    --no-reset-stats \
     2>&1 | tee "${RESULTS}/asyncio-locust.log"
 
 log "Terminating asyncio server"
@@ -250,7 +263,6 @@ test-venv3/bin/locust \
     --num-request=${REQUESTS} \
     --clients=${CLIENTS} \
     --hatch-rate=${HATCH_RATE} \
-    --no-reset-stats \
     2>&1 | tee "${RESULTS}/tornado2-locust.log"
 
 log "Terminating tornado server"
@@ -275,7 +287,6 @@ test-venv3/bin/locust \
     --num-request=${REQUESTS} \
     --clients=${CLIENTS} \
     --hatch-rate=${HATCH_RATE} \
-    --no-reset-stats \
     2>&1 | tee "${RESULTS}/tornado3-locust.log"
 
 log "Terminating tornado server"

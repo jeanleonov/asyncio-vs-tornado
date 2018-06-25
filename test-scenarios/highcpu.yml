@@ -1,23 +1,23 @@
 no-io:
   weight: 10
   params:
-    response_type: high
-    cpu_type: normal
+    response_type: normal
+    cpu_type: high
 
 sequential-io:
   weight: 10
   params:
     io_duration_type: normal
     io_number_type: normal
-    io_traffic_type: high
-    response_type: high
-    cpu_type: normal
+    io_traffic_type: normal
+    response_type: normal
+    cpu_type: high
 
 parallel-io:
   weight: 10
   params:
     io_duration_type: normal
     io_number_type: normal
-    io_traffic_type: high
-    response_type: high
-    cpu_type: normal
+    io_traffic_type: normal
+    response_type: normal
+    cpu_type: high

@@ -10,48 +10,30 @@ log() {
     echo "$(date +'%Y-%m-%d %T'): $LEVEL $1"
 }
 
-print_locust_summary_table() {
-    local LOCUST_LOG=$1
-    # The table appears just after shutting down is reported
-    # 'Total   ' is in the last row of the table
-    awk '/Shutting down/{flag=1;next}/Total/{flag=0}flag' "${LOCUST_LOG}"
-}
-
+# Extracts method,reqs,fails,avg_delay,min_delay,max_delay values
+# from locust log file
 locust_result() {
     local LOCUST_LOG=$1
-    local TABLE=`print_locust_summary_table "${LOCUST_LOG}"`
-    local NO_IO=`echo "${TABLE}" | grep "/no-io?"`
-    local PARALLEL_IO=`echo "${TABLE}" | grep "/parallel-io?"`
-    local SEQUENTIAL_IO=`echo "${TABLE}" | grep "/sequential-io?"`
+    # The table appears just after "Shutting down" is reported
+    # 'Total   ' is in the last row of the table
+    local TABLE=`awk '/Shutting down/{flag=1;next}/Total/{flag=0}flag' "${LOCUST_LOG}"`
 
-    # Save results into global variables
-    NO_IO_REQS=`echo "${NO_IO}" | awk '{ print $3 }'`
-    NO_IO_FAILS=`echo "${NO_IO}" | awk '{ print $4 }'`
-    NO_IO_AVG=`echo "${NO_IO}" | awk '{ print $5 }'`
+    # Cut header and styling --------- rows
+    local RAW_ROWS=`echo "${TABLE}" | grep " GET /"`
 
-    PARALLEL_IO_REQS=`echo "${PARALLEL_IO}" | awk '{ print $3 }'`
-    PARALLEL_IO_FAILS=`echo "${PARALLEL_IO}" | awk '{ print $4 }'`
-    PARALLEL_IO_AVG=`echo "${PARALLEL_IO}" | awk '{ print $5 }'`
+    # Prepare values for columns method,reqs,fails,avg_delay,min_delay,max_delay
+    LOCUST_STATS=`echo "${RAW_ROWS}" \
+                  | sed 's/?/ /' \
+                  | awk '{ print $2 "," $4 "," $5 "," $6 "," $7 "," $8 }'`
 
-    SEQUENTIAL_IO_REQS=`echo "${SEQUENTIAL_IO}" | awk '{ print $3 }'`
-    SEQUENTIAL_IO_FAILS=`echo "${SEQUENTIAL_IO}" | awk '{ print $4 }'`
-    SEQUENTIAL_IO_AVG=`echo "${SEQUENTIAL_IO}" | awk '{ print $5 }'`
-
-    if [ -z "${NO_IO_REQS}" ] || \
-       [ -z "${NO_IO_FAILS}" ] || \
-       [ -z "${NO_IO_AVG}" ] || \
-       [ -z "${PARALLEL_IO_REQS}" ] || \
-       [ -z "${PARALLEL_IO_FAILS}" ] || \
-       [ -z "${PARALLEL_IO_AVG}" ] || \
-       [ -z "${SEQUENTIAL_IO_REQS}" ] || \
-       [ -z "${SEQUENTIAL_IO_FAILS}" ] || \
-       [ -z "${SEQUENTIAL_IO_AVG}" ]
+    if echo "${LOCUST_STATS}" | grep --quiet ",,"
     then
         log "Couldn't find all locust results at ${LOCUST_LOG}" "ERROR"
         exit 1
     fi
 }
 
+# Calculates duration of locust test in seconds
 locust_duration () {
     local LOCUST_LOG=$1
     local REGEX="[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}"
@@ -76,23 +58,17 @@ print((end - start).seconds)
 "`
 }
 
+# Extracts internal servers stats from stats log
+# io_ops,io_duration,cpu_ops,cpu_duration,cpu_user,cpu_system,cpu_children_user,cpu_children_system,mem_virt,mem_res,mem_uni
 server_stats() {
     local STATS_LOG=$1
     local LAST_ROW=`tail -n 1 "${STATS_LOG}"`
 
-    IO_OPS=`echo "${LAST_ROW}" | awk '{ print $4 }' | sed 's/,//'`
-    IO_DURATION=`echo "${LAST_ROW}" | awk '{ print $5 }' | sed 's/,//'`
-    CPU_OPS=`echo "${LAST_ROW}" | awk '{ print $7 }' | sed 's/,//'`
-    CPU_DURATION=`echo "${LAST_ROW}" | awk '{ print $8 }' | sed 's/,//'`
-    CPU_USER=`echo "${LAST_ROW}" | awk '{ print $10 }' | sed 's/,//'`
-    CPU_SYSTEM=`echo "${LAST_ROW}" | awk '{ print $11 }' | sed 's/,//'`
-
-    if [ -z "${IO_OPS}" ] || \
-       [ -z "${IO_DURATION}" ] || \
-       [ -z "${CPU_OPS}" ] || \
-       [ -z "${CPU_DURATION}" ] || \
-       [ -z "${CPU_USER}" ] || \
-       [ -z "${CPU_SYSTEM}" ]
+    SERVER_STATS=`
+        echo "${LAST_ROW}" |
+        awk '{ print $4 "," $5 "," $7 "," $8 "," $10 "," $11 "," $12 "," $13 "," $15 "," $16 "," $17 }'
+    `
+    if echo "${SERVER_STATS}" | grep --quiet ",,"
     then
         log "Couldn't find all expected stats at ${STATS_LOG}" "ERROR"
         exit 1
@@ -100,14 +76,14 @@ server_stats() {
 }
 
 
-OUTPUT="./results/summary $(date +'%Y-%m-%d %T').csv"
+OUTPUT="./results2/summary_$(date +'%Y-%m-%d_%T').csv"
 
 
 # Iterate through all result directories
-for result_dir in `find ./results -type d`
+for result_dir in `find ./results2 -type d`
 do
     # Skip results root directory
-    if [[ "${result_dir}" == './results' ]]; then
+    if [[ "${result_dir}" == './results2' ]]; then
         continue;
     fi
 
@@ -121,6 +97,7 @@ asyncio
 tornado2
 tornado3
 "
+    # Iterate through servers
     for server in ${SERVERS}
     do
         log "Directory ${DIR_NAME}. Extracting results for ${server} server"
@@ -128,27 +105,28 @@ tornado3
 
         # Fetch basic requests stats
         locust_result "${result_dir}/${server}-locust.log"
-
         # Determine test duration in seconds
         locust_duration "${result_dir}/${server}-locust.log"
-
         # Extract servers stats
         server_stats "${result_dir}/${server}-stats.log"
 
         # Save stats for no/parallel/sequential-io into separate rows
-        PREFIX="${SCENARIO},${CLIENTS},${server},${DURATION}"
-        SUFFIX="${IO_OPS},${IO_DURATION},${CPU_OPS},${CPU_DURATION},${CPU_USER},${CPU_SYSTEM}"
+        PREFIX="${SCENARIO},${CLIENTS},${server}"
 
-        echo "${PREFIX},no-io,${NO_IO_REQS},${NO_IO_FAILS},${NO_IO_AVG},${SUFFIX}" >> "${OUTPUT}"
-        echo "${PREFIX},parallel-io,${PARALLEL_IO_REQS},${PARALLEL_IO_FAILS},${PARALLEL_IO_AVG},${SUFFIX}" >> "${OUTPUT}"
-        echo "${PREFIX},sequential-io,${SEQUENTIAL_IO_REQS},${SEQUENTIAL_IO_FAILS},${SEQUENTIAL_IO_AVG},${SUFFIX}" >> "${OUTPUT}"
+        echo "${LOCUST_STATS}" \
+        | awk -v prefix="${PREFIX}" -v duration="${DURATION}" -v server="${SERVER_STATS}" \
+              '{ print prefix "," $1 "," duration "," server }' >> "${OUTPUT}"
     done
 done
 
 mv "${OUTPUT}" "${OUTPUT}.raw"
 
 # Write header
-echo "scenario,clients,server,duration,method,reqs,fails,avg_delay,io_ops,io_duration,cpu_ops,cpu_duration,cpu_user,cpu_system" > "${OUTPUT}"
+echo "scenario,clients,server,\
+method,reqs,fails,avg_delay,min_delay,max_delay,duration,\
+io_ops,io_duration,cpu_ops,cpu_duration,\
+cpu_user,cpu_system,cpu_children_user,cpu_children_system,mem_virt,mem_res,mem_uni" \
+> "${OUTPUT}"
 
 # Write sorted content
 sort -t , -k 1,1 -k 2,2n -k 3,3 -k 5,5 "${OUTPUT}.raw" >> "${OUTPUT}"

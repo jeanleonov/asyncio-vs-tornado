@@ -126,7 +126,7 @@ def main():
     ])
     app.listen(args.port)
     io_loop = ioloop.IOLoop.current()
-    ioloop.PeriodicCallback(shared.report_stats, 60000).start()
+    ioloop.PeriodicCallback(shared.report_stats, 10000).start()
     io_loop.start()
 
 

@@ -2,7 +2,7 @@ venv/
 venv2/
 test-venv2/
 test-venv3/
-results/
+results*/
 .idea/
 
 # Byte-compiled / optimized / DLL files

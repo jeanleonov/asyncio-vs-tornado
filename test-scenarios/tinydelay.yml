@@ -1,0 +1,23 @@
+no-io:
+  weight: 10
+  params:
+    response_type: normal
+    cpu_type: normal
+
+sequential-io:
+  weight: 10
+  params:
+    io_duration_type: tiny
+    io_number_type: normal
+    io_traffic_type: normal
+    response_type: normal
+    cpu_type: normal
+
+parallel-io:
+  weight: 10
+  params:
+    io_duration_type: tiny
+    io_number_type: normal
+    io_traffic_type: normal
+    response_type: normal
+    cpu_type: normal

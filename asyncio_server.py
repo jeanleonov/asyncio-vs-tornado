@@ -89,8 +89,8 @@ class Server(object):
 
 async def stats_reporter():
     while True:
+        await asyncio.sleep(10)
         shared.report_stats()
-        await asyncio.sleep(60)
 
 
 def main():
